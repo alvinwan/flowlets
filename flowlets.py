@@ -25,8 +25,6 @@ import docopt
 import numpy as np
 import scipy.io
 
-from thirdparty.parseTrackletXML import TRUNC_IN_IMAGE
-from thirdparty.parseTrackletXML import TRUNC_TRUNCATED
 from thirdparty.parseTrackletXML import parseXML
 
 DEFAULT_DRIVE = './'
@@ -112,11 +110,6 @@ def extractTracklet(path: str) -> List[Dict]:
         # loop over all frames in tracklet
         for translation, rotation, state, occlusion, truncation, amtOcclusion, \
             amtBorders, absoluteFrameNumber in tracklet:
-
-            # TODO(Alvin): Determine if necessary
-            # determine if object is in the image; otherwise continue
-            # if truncation not in (TRUNC_IN_IMAGE, TRUNC_TRUNCATED):
-            #     continue
 
             # re-create 3D bounding box in velodyne coordinate system
             yaw = rotation[2]  # other rotations are 0 in all xml files I checked
