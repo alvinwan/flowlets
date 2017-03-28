@@ -5,11 +5,12 @@ to a bounding box at time t+1. Each flowlet is associated with an object, for
 all frames the involved object is detected.
 
 Usage:
-    flowlets.py <path> [options]
-    flowlets.py KITTI (drive|all) [options]
+    flowlets.py 3d <path> [options]
+    flowlets.py 2d <path> <calib_dir> [options]
+    flowlets.py 3d KITTI (drive|all) [options]
+    flowlets.py 2d KITTI <calib_dir> (drive|all) [options]
 
 Options:
-    --d=(2|3)           Use 2d projection onto camera 2 or 3d velodyne coordinates [default: 3]
     --drive=<dir>       Drive identification. [default: ./]
     --kitti=<dir>       Path to KITTI data. [default: ./]
     --out=<dir>         Directory containing outputted files. [default: ./out]
@@ -25,6 +26,7 @@ import docopt
 import numpy as np
 import scipy.io
 
+from thirdparty.calib import Calib
 from thirdparty.parseTrackletXML import parseXML
 
 DEFAULT_DRIVE = './'
@@ -46,15 +48,14 @@ def main():
         raise NotImplementedError('Not yet ready.')
         tracklets = extractKITTITracklets(kitti=arguments['--kitti'])
 
-    if arguments['--d'] == '3':
+    if arguments['3d']:
         output3d(
             arguments['--out'],
             flowlets=flowletize3d(tracklets),
             mode=arguments['--mode'])
     else:
-        raise NotImplementedError('Not yet ready.')
         output2d(arguments['--out'],
-            flowlets=flowletize2d(tracklets),
+            flowlets=flowletize2d(tracklets, arguments['<calib_dir>']),
             mode=arguments['--mode'])
 
 
@@ -155,30 +156,22 @@ def flowletize3d(tracklets: List[Dict]) -> List[Dict]:
     return tracklets
 
 
-def flowletize2d(vectors: List[Dict], focal_length: float,
-        normal=np.matrix([0, 1, 0]).T) -> List[Dict]:
+def flowletize2d(tracklets: List[Dict], calib_dir: str, cam_idx: int=2)\
+        -> List[Dict]:
     """Project vectors onto camera view.
 
     We assume the camera view runs in the x-z direction, perpendicular to the
     y axis.
     """
-    assert normal.shape == (3, 1), 'Normal must be a column vector in R^3'
-    normal = normal / np.linalg.norm(normal)
-    bias = focal_length * normal
-    projected_vectors = []
-    for vector_data in vectors:
-        _vectors, _biases = vector_data['vectors'], vector_data['biases']
-        _vectors = _vectors - (_vectors.dot(normal) * normal.T)
-        _biases = bias.T.dot(normal)/ _vectors.dot(normal) * bias.T
-        projected_vectors.append({
-            'firstFrame': vector_data['firstFrame'],
-            'size': vector_data['size'],
-            'translations': vector_data['translations'],
-            'yawVisuals': vector_data['yawVisuals'],
-            'vectors': _vectors,
-            'biases': _biases
-        })
-    return projected_vectors
+    calib = Calib(calib_dir)
+    for tracklet in tracklets:
+        centers = np.array(
+            [np.mean(frame, axis=1) for frame in tracklet['boxes']])
+        projected_centers = calib.velo2img(centers, cam_idx)
+        Xt1, Xt2 = projected_centers[:-1], projected_centers[1:]
+        tracklet['vectors'] = Xt2 - Xt1
+        tracklet['biases'] = Xt1
+    return tracklets
 
 
 def output3d(
@@ -196,7 +189,7 @@ def output3d(
         for flowlet in flowlets:
             nFrames = flowlet['nFrames']
             firstFrame = flowlet['firstFrame']
-            for dt in range(nFrames - 2):
+            for dt in range(nFrames - 1):
                 t = firstFrame + dt
                 entry = np.matrix([
                     flowlet['h'],
@@ -215,7 +208,7 @@ def output3d(
 
         for t, frame in frames.items():
             path = path_format.format(t=t)
-            np.save(path, frame)
+            np.save(join(out, path), frame)
 
 
 # TODO(Alvin): Smoosh together output3d, output2d for a general function.
@@ -223,18 +216,18 @@ def output2d(
         out: str,
         flowlets: List[Dict],
         mode: str='frame',
-        path_format: str='',
+        path_format: str='flowlet-{t}.npy',
     ) -> None:
     """Saves output per provided mode."""
     if mode == 'object':
         filepath = join(out, 'vectors.mat')
         scipy.io.savemat(filepath, {'vectors': flowlets})
     else:
-        frames = defaultdict(lambda: [])
+        frames = defaultdict(lambda: None)
         for flowlet in flowlets:
             nFrames = flowlet['nFrames']
             firstFrame = flowlet['firstFrame']
-            for dt in range(nFrames):
+            for dt in range(nFrames - 1):
                 t = firstFrame + dt
                 entry = np.array([
                     flowlet['h'],
@@ -250,7 +243,7 @@ def output2d(
 
         for t, frame in frames.items():
             path = path_format.format(t=t)
-            np.save(path, frame)
+            np.save(join(out, path), frame)
 
 if __name__ == '__main__':
     main()
