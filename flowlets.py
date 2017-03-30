@@ -201,7 +201,10 @@ def flowletize(
         centers = np.array(
             [np.mean(frame, axis=1) for frame in tracklet['boxes']])
         if dimensions == 2:
+            points = np.vstack((tracklet['xs'], tracklet['ys'], tracklet['zs'])).T
+            tracklet['xs'], tracklet['ys'] = calib.velo2img(points, cam_idx).T
             centers = calib.velo2img(centers, cam_idx)
+            del tracklet['zs']
         Xt1, Xt2 = centers[:-1], centers[1:]
         tracklet['vectors'] = Xt2 - Xt1
         tracklet['biases'] = Xt1
