@@ -37,6 +37,8 @@ from thirdparty.parseTrackletXML import parseXML
 DEFAULT_PATH_FORMAT = '{date}_{drive_id}_{frame_id}.npy'
 DEFAULT_2D_COLUMNS = 'x,y,w,h,dx,dy'
 DEFAULT_3D_COLUMNS = 'x,y,z,w,h,l,dx,dy,dz'
+OBJECT_TYPES = ('Car', 'Cyclist', 'Pedestrian', 'Van', 'Tram',
+                'Person (sitting)', 'Truck', 'Misc')
 
 
 def main():
@@ -138,6 +140,7 @@ def extract_tracklets_bundle(path: str, date: str = None, drive_id: str = None) 
         tracklets.append({
             'firstFrame': tracklet.firstFrame,
             'nFrames': tracklet.nFrames,
+            'class': OBJECT_TYPES.index(tracklet.objectType),
             'h': h,
             'w': w,
             'l': l,
@@ -232,6 +235,7 @@ def output(
             flowlet_data = {
                 'h': flowlet['h'],
                 'w': flowlet['w'],
+                'class': flowlet['class']
             }
             if 'l' in flowlet:
                 flowlet_data['l'] = flowlet['l']
