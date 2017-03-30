@@ -5,20 +5,24 @@ to a bounding box at time t+1. Each flowlet is associated with an object, for
 all frames the involved object is detected.
 
 Usage:
-    flowlets.py 3d <path> [options]
-    flowlets.py 2d <path> <calib_dir> [options]
-    flowlets.py 3d KITTI (drive|all) [options]
-    flowlets.py 2d KITTI <calib_dir> (drive|all) [options]
+    flowlets.py <path> [options]
+    flowlets.py KITTI <kitti_dir> [options]
+    flowlets.py KITTI <kitti_dir> <date> <drive_id> [options]
 
 Options:
-    --drive=<dir>       Drive identification. [default: ./]
-    --kitti=<dir>       Path to KITTI data. [default: ./]
+    --d=<dims>          Number of dimensions [default: 2]
     --out=<dir>         Directory containing outputted files. [default: ./out]
     --mode=(obj|frame)  Output one file per object or one file per frame. [default: frame]
+    --columns=<columns> Specify order of columns
 """
+
+import os
 
 from collections import defaultdict
 from os.path import join
+from os.path import isdir
+from os.path import basename
+from os.path import exists
 from typing import Dict
 from typing import List
 
@@ -29,60 +33,96 @@ import scipy.io
 from thirdparty.calib import Calib
 from thirdparty.parseTrackletXML import parseXML
 
-DEFAULT_DRIVE = './'
-DEFAULT_KITTI = './'
+
+DEFAULT_PATH_FORMAT = '{date}_{drive_id}_{frame_id}.npy'
+DEFAULT_2D_COLUMNS = 'x,y,w,h,dx,dy'
+DEFAULT_3D_COLUMNS = 'x,y,z,w,h,l,dx,dy,dz'
 
 
 def main():
     """Run the main utility."""
     arguments = docopt.docopt(__doc__, version='Flowlets 1.0')
+    dimensions = int(arguments['--d'])
+    default_columns = DEFAULT_3D_COLUMNS if dimensions == 3 \
+        else DEFAULT_2D_COLUMNS
 
     if arguments['<path>']:
-        tracklets = extractTracklet(arguments['<path>'])
-    elif arguments['drive']:
-        raise NotImplementedError('Not yet ready.')
-        tracklets = extractDriveTracklet(
-            kitti=arguments['--kitti'],
-            drive=arguments['--drive'])
+        tbundles = [extract_tracklets_bundle(arguments['<path>'])]
+    elif arguments['<drive_id>']:
+        tbundle = extract_drive_tracklets_bundle(
+            kitti=arguments['<kitti_dir>'],
+            date=arguments['<date>'],
+            drive_id=arguments['<drive_id>'])
+        tbundles = [tbundle]
     else:
-        raise NotImplementedError('Not yet ready.')
-        tracklets = extractKITTITracklets(kitti=arguments['--kitti'])
+        tbundles = extract_all_tracklets_bundles(kitti=arguments['<kitti_dir>'])
 
-    if arguments['3d']:
-        output3d(
+    for tbundle in tbundles:
+        fbundle = flowletize(
+            tbundle,
+            calib_dir=join(arguments['<kitti_dir>'], tbundle['date']),
+            dimensions=dimensions)
+        output(
             arguments['--out'],
-            flowlets=flowletize3d(tracklets),
-            mode=arguments['--mode'])
-    else:
-        output2d(arguments['--out'],
-            flowlets=flowletize2d(tracklets, arguments['<calib_dir>']),
-            mode=arguments['--mode'])
+            fbundle=fbundle,
+            mode=arguments['--mode'],
+            columns=default_columns)
 
 
-def extractKITTITracklets(kitti: str=DEFAULT_KITTI) -> List[Dict]:
+def extract_all_tracklets_bundles(kitti: str) -> List[Dict]:
     """Extract all KITTI tracklets."""
-    pass
+    flowlets = []
+    dates = [path for path in os.listdir(kitti) if isdir(join(kitti, path))]
+    for date in dates:
+        drive_dir_path = join(kitti, date)
+        drive_dirs = [path for path in os.listdir(drive_dir_path) if
+                      isdir(join(drive_dir_path, path))]
+        for drive_dir in drive_dirs:
+            drive_id = drive_dir.split('_')[-2]
+            flowlets.append(extract_drive_tracklets_bundle(
+                kitti=kitti, date=date, drive_id=drive_id))
+    return flowlets
 
 
-def extractDriveTracklet(
-        kitti: str=DEFAULT_KITTI, drive: str=DEFAULT_DRIVE) -> List[Dict]:
-    """Extract all KITTI tracklets for a single drive."""
-    pass
+def extract_drive_tracklets_bundle(
+        kitti: str,
+        date: str,
+        drive_id: str,
+        drive_path: str = None) -> Dict:
+    """Extract all KITTI tracklet for a drive."""
+    if drive_path is None:
+        drive_dir = '_'.join([date, 'drive', drive_id, 'sync'])
+        drive_path = join(kitti, date, drive_dir)
+    filepath = join(drive_path, 'tracklet_labels.xml')
+    return extract_tracklets_bundle(filepath, date=date, drive_id=drive_id)
 
 
-def extractTracklet(path: str) -> List[Dict]:
+def extract_tracklets_bundle(path: str, date: str = None, drive_id: str = None) \
+        -> Dict:
     """Extract tracklets and cartesian coordinates from KITTI tracklet file.
 
     This function was adapted from the example method in parseTrackletXML.py.
     (See file for credits.)
+
+    If the date and drive_ids are not specified, this assumes that the date
+    and drive_id are supplmented by the path, where the directory containing the
+    XML file is formatted as {date}_{drive_id}_{frame_id}_sync/.
     """
+    assert basename(path) == 'tracklet_labels.xml', 'Unexpected filename.'
+    print(' * Extracting', path)
+
+    if date is None or drive_id is None:
+        drive_dir = path.split('/')
+        drive_data = drive_dir[-2].split('_')
+        date = '_'.join(drive_data[:3])
+        drive_id = drive_data[-2]
 
     twoPi = 2. * np.pi  # read tracklets from file
-    tracklets = parseXML(path)
-    objects = []
+    tracklets_raw = parseXML(path)
+    tracklets = []
 
     # loop over tracklets
-    for iTracklet, tracklet in enumerate(tracklets):
+    for iTracklet, tracklet in enumerate(tracklets_raw):
         print('tracklet {0: 3d}: {1}'.format(iTracklet, tracklet))
 
         # this part is inspired by kitti object development kit matlab code:
@@ -95,7 +135,7 @@ def extractTracklet(path: str) -> List[Dict]:
             [w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2],
             [0.0, 0.0, 0.0, 0.0, h, h, h, h]])
         boxes, xs, ys, zs, yawVisuals = [], [], [], [], []
-        objects.append({
+        tracklets.append({
             'firstFrame': tracklet.firstFrame,
             'nFrames': tracklet.nFrames,
             'h': h,
@@ -111,9 +151,8 @@ def extractTracklet(path: str) -> List[Dict]:
         # loop over all frames in tracklet
         for translation, rotation, state, occlusion, truncation, amtOcclusion, \
             amtBorders, absoluteFrameNumber in tracklet:
-
             # re-create 3D bounding box in velodyne coordinate system
-            yaw = rotation[2]  # other rotations are 0 in all xml files I checked
+            yaw = rotation[2]  # other rotations are 0 in all xml files
             assert np.abs(
                 rotation[:2]).sum() == 0, \
                 'object rotations other than yaw given!'
@@ -137,113 +176,82 @@ def extractTracklet(path: str) -> List[Dict]:
             yawVisuals.append(yawVisual)
 
             boxes.append(cornerPosInVelo)
-    return objects
+    return {'date': date, 'drive_id': drive_id, 'tracklets': tracklets}
 
 
-def flowletize3d(tracklets: List[Dict]) -> List[Dict]:
+def flowletize(
+        bundle: Dict,
+        calib_dir: str=None,
+        dimensions: int=3,
+        cam_idx: int=2,) -> Dict:
     """Vectorizes the list of cartesian coordinates.
 
     Returns a list of tuples, one number denoting the first frame the object is
     detected and one matrix for each tracked object. The matrix
     is tx3 where t is the number of frames each object is tracked for.
+
+    If the provided dimension is 2, it will project velodyne coordinates onto a
+    camera view, where the camera is specified by `cam_idx`.
     """
-    for tracklet in tracklets:
+    if dimensions == 2:
+        assert calib_dir is not None and exists(calib_dir), \
+            'No directory for calibration files found.'
+        calib = Calib(calib_dir)
+    for tracklet in bundle['tracklets']:
         centers = np.array(
             [np.mean(frame, axis=1) for frame in tracklet['boxes']])
+        if dimensions == 2:
+            centers = calib.velo2img(centers, cam_idx)
         Xt1, Xt2 = centers[:-1], centers[1:]
         tracklet['vectors'] = Xt2 - Xt1
         tracklet['biases'] = Xt1
-    return tracklets
+    bundle['flowlets'] = bundle.pop('tracklets')
+    return bundle
 
 
-def flowletize2d(tracklets: List[Dict], calib_dir: str, cam_idx: int=2)\
-        -> List[Dict]:
-    """Project vectors onto camera view.
-
-    We assume the camera view runs in the x-z direction, perpendicular to the
-    y axis.
-    """
-    calib = Calib(calib_dir)
-    for tracklet in tracklets:
-        centers = np.array(
-            [np.mean(frame, axis=1) for frame in tracklet['boxes']])
-        projected_centers = calib.velo2img(centers, cam_idx)
-        Xt1, Xt2 = projected_centers[:-1], projected_centers[1:]
-        tracklet['vectors'] = Xt2 - Xt1
-        tracklet['biases'] = Xt1
-    return tracklets
-
-
-def output3d(
+def output(
         out: str,
-        flowlets: List[Dict],
+        fbundle: Dict,
         mode: str='frame',
-        path_format: str='flowlet-{t}.npy',
+        path_format: str=DEFAULT_PATH_FORMAT,
+        columns: str=DEFAULT_3D_COLUMNS
     ) -> None:
     """Saves output per provided mode."""
     if mode == 'object':
-        filepath = join(out, 'vectors.mat')
-        scipy.io.savemat(filepath, {'vectors': flowlets})
+        filepath = join(out, 'bundle.mat')
+        scipy.io.savemat(filepath, {'bundle': fbundle})
     else:
         frames = defaultdict(lambda: None)
-        for flowlet in flowlets:
+        for flowlet in fbundle['flowlets']:
             nFrames = flowlet['nFrames']
             firstFrame = flowlet['firstFrame']
+            flowlet_data = {
+                'h': flowlet['h'],
+                'w': flowlet['w'],
+            }
+            if 'l' in flowlet:
+                flowlet_data['l'] = flowlet['l']
             for dt in range(nFrames - 1):
                 t = firstFrame + dt
-                entry = np.matrix([
-                    flowlet['h'],
-                    flowlet['w'],
-                    flowlet['l'],
-                    flowlet['xs'][dt],
-                    flowlet['ys'][dt],
-                    flowlet['zs'][dt],
-                    flowlet['vectors'][dt][0],
-                    flowlet['vectors'][dt][1],
-                    flowlet['vectors'][dt][2]
-                ])
+                flowlet_data['x'] = flowlet['xs'][dt]
+                flowlet_data['y'] = flowlet['ys'][dt]
+                flowlet_data['dx'] = flowlet['vectors'][dt][0]
+                flowlet_data['dy'] = flowlet['vectors'][dt][1]
+                if flowlet['vectors'].shape[1] >= 3:
+                    flowlet_data['z'] = flowlet['zs'][dt]
+                    flowlet_data['dz'] = flowlet['vectors'][dt][2]
+                entry = np.matrix([flowlet_data[c] for c in columns.split(',')])
                 if frames[t] is None:
                     frames[t] = entry
                 frames[t] = np.vstack((frames[t], entry))
 
-        for t, frame in frames.items():
-            path = path_format.format(t=t)
+        for frame_id, frame in frames.items():
+            path = path_format.format(
+                date=fbundle['date'],
+                drive_id=fbundle['drive_id'],
+                frame_id=frame_id)
             np.save(join(out, path), frame)
 
-
-# TODO(Alvin): Smoosh together output3d, output2d for a general function.
-def output2d(
-        out: str,
-        flowlets: List[Dict],
-        mode: str='frame',
-        path_format: str='flowlet-{t}.npy',
-    ) -> None:
-    """Saves output per provided mode."""
-    if mode == 'object':
-        filepath = join(out, 'vectors.mat')
-        scipy.io.savemat(filepath, {'vectors': flowlets})
-    else:
-        frames = defaultdict(lambda: None)
-        for flowlet in flowlets:
-            nFrames = flowlet['nFrames']
-            firstFrame = flowlet['firstFrame']
-            for dt in range(nFrames - 1):
-                t = firstFrame + dt
-                entry = np.array([
-                    flowlet['h'],
-                    flowlet['w'],
-                    flowlet['xs'][dt],
-                    flowlet['ys'][dt],
-                    flowlet['vectors'][dt][0],
-                    flowlet['vectors'][dt][1],
-                ])
-                if frames[t] is None:
-                    frames[t] = entry
-                frames[t] = np.vstack((frames[t], entry))
-
-        for t, frame in frames.items():
-            path = path_format.format(t=t)
-            np.save(join(out, path), frame)
 
 if __name__ == '__main__':
     main()
