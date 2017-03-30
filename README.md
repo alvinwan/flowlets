@@ -23,23 +23,37 @@ from the repository root.
     cd $FHOME
     pip install -r requirements.txt
     
+If you're only looking to convert tracklets to flowlets, run the
+following download script. Otherwise, please see the KITTI website for
+a full dataset download.
+
+```
+bash tracklet_calib_data_downloader.sh
+```
+
 Finally, use `python flowlets.py` per the usage instructions below. You
 may additionally use `python flowlets.py --help` to retrieve instructions.
 
 # Usage
 
-The script is contained in the repository root.
+The script is contained in the repository root. To, for example, convert
+all tracklets into flowlets, run the following, where `/KITTI_raw` is
+the directory containing our raw KITTI data, and `~/flowlets` should
+contain all outputs.
+
+```
+python flowlets.py KITTI /KITII_raw --out=~/flowlets
+```
 
 ```
 Usage:
-    flowlets.py 3d <path> [options]
-    flowlets.py 2d <path> <calib_dir> [options]
-    flowlets.py 3d KITTI (drive|all) [options]
-    flowlets.py 2d KITTI <calib_dir> (drive|all) [options]
+    flowlets.py <path> [options]
+    flowlets.py KITTI <kitti_dir> [options]
+    flowlets.py KITTI <kitti_dir> <date> <drive_id> [options]
 
 Options:
-    --drive=<dir>       Drive identification. [default: ./]
-    --kitti=<dir>       Path to KITTI data. [default: ./]
+    --d=<dims>          Number of dimensions [default: 2]
     --out=<dir>         Directory containing outputted files. [default: ./out]
     --mode=(obj|frame)  Output one file per object or one file per frame. [default: frame]
+    --columns=<columns> Specify order of columns
 ```

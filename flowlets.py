@@ -221,6 +221,7 @@ def output(
         filepath = join(out, 'bundle.mat')
         scipy.io.savemat(filepath, {'bundle': fbundle})
     else:
+        os.makedirs(out, exist_ok=True)
         frames = defaultdict(lambda: None)
         for flowlet in fbundle['flowlets']:
             nFrames = flowlet['nFrames']
