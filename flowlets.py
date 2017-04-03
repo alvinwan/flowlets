@@ -35,8 +35,8 @@ from thirdparty.parseTrackletXML import parseXML
 
 
 DEFAULT_PATH_FORMAT = '{date}_{drive_id}_{frame_id}.npy'
-DEFAULT_2D_COLUMNS = 'x,y,w,h,dx,dy'
-DEFAULT_3D_COLUMNS = 'x,y,z,w,h,l,dx,dy,dz'
+DEFAULT_2D_COLUMNS = 'x,y,w,h,dx,dy,class'
+DEFAULT_3D_COLUMNS = 'x,y,z,w,h,l,dx,dy,dz,class'
 OBJECT_TYPES = ('Car', 'Cyclist', 'Pedestrian', 'Van', 'Tram',
                 'Person (sitting)', 'Truck', 'Misc')
 
@@ -60,10 +60,12 @@ def main():
         tbundles = extract_all_tracklets_bundles(kitti=arguments['<kitti_dir>'])
 
     for tbundle in tbundles:
+        print(' * [INFO] Converting...')
         fbundle = flowletize(
             tbundle,
             calib_dir=join(arguments['<kitti_dir>'], tbundle['date']),
             dimensions=dimensions)
+        print(' * [INFO] Writing...')
         output(
             arguments['--out'],
             fbundle=fbundle,
@@ -206,7 +208,9 @@ def flowletize(
         if dimensions == 2:
             points = np.vstack((tracklet['xs'], tracklet['ys'], tracklet['zs'])).T
             tracklet['xs'], tracklet['ys'] = calib.velo2img(points, cam_idx).T
-            centers = calib.velo2img(centers, cam_idx)
+            centers = np.vstack((
+                tracklet['xs'] + (tracklet['w'] / 2),
+                tracklet['ys'] + (tracklet['h'] / 2))).T
             del tracklet['zs']
         Xt1, Xt2 = centers[:-1], centers[1:]
         tracklet['vectors'] = Xt2 - Xt1
@@ -251,13 +255,14 @@ def output(
                 entry = np.matrix([flowlet_data[c] for c in columns.split(',')])
                 if frames[t] is None:
                     frames[t] = entry
-                frames[t] = np.vstack((frames[t], entry))
+                else:
+                    frames[t] = np.vstack((frames[t], entry))
 
         for frame_id, frame in frames.items():
             path = path_format.format(
                 date=fbundle['date'],
                 drive_id=fbundle['drive_id'],
-                frame_id=frame_id)
+                frame_id=str(frame_id).zfill(10))
             np.save(join(out, path), frame)
 
 
