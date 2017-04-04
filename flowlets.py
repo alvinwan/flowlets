@@ -4,6 +4,21 @@ Flowlets are vectors between frames, from the center of a bounding box at time t
 to a bounding box at time t+1. Each flowlet is associated with an object, for
 all frames the involved object is detected.
 
+The columns argument below allows you to organize, include, or omit columns
+as you wish. The following are available. Note that if the 2D option is
+selected, only the (x, y) below apply:
+
+    x - x coordinate of the bounding box center
+    y - y coordinate of the bounding box center
+    z - z coordinate of the bounding box center
+    h - height of the bounding box
+    w - width of the bounding box
+    l - length of the bounding box
+    dx - x coordinate of the delta vector, tracking movement of the bounding box
+    dy - y coordinate of the delta vector, tracking movement of the bounding box
+    dz - z coordinate of the delta vector, tracking movement of the bounding box
+    class - class of the object
+
 Usage:
     flowlets.py <path> [options]
     flowlets.py KITTI <kitti_dir> [options]
@@ -13,7 +28,7 @@ Options:
     --d=<dims>          Number of dimensions [default: 2]
     --out=<dir>         Directory containing outputted files. [default: ./out]
     --mode=(obj|frame)  Output one file per object or one file per frame. [default: frame]
-    --columns=<columns> Specify order of columns
+    --columns=<columns> Specify order of columns, comma-separated values
 """
 
 import os
@@ -206,11 +221,21 @@ def flowletize(
         centers = np.array(
             [np.mean(frame, axis=1) for frame in tracklet['boxes']])
         if dimensions == 2:
-            points = np.vstack((tracklet['xs'], tracklet['ys'], tracklet['zs'])).T
-            tracklet['xs'], tracklet['ys'] = calib.velo2img(points, cam_idx).T
-            centers = np.vstack((
-                tracklet['xs'] + (tracklet['w'] / 2),
-                tracklet['ys'] + (tracklet['h'] / 2))).T
+            projected_xs, projected_ys, projected_ws, projected_hs = [], [], [], []
+            for box in tracklet['boxes']:
+                xs, ys = calib.velo2img(box.T, cam_idx).T
+                xmin, xmax, ymin, ymax = min(xs), max(xs), min(ys), max(ys)
+                projected_xs.append(xmin)
+                projected_ys.append(ymin)
+                projected_ws.append(xmax - xmin)
+                projected_hs.append(ymax - ymin)
+            tracklet['xs'] = np.vstack(projected_xs)
+            tracklet['ys'] = np.vstack(projected_ys)
+            tracklet['ws'] = np.vstack(projected_ws)
+            tracklet['hs'] = np.vstack(projected_hs)
+            tracklet['xs'] += tracklet['ws'] / 2
+            tracklet['ys'] += tracklet['hs'] / 2
+            centers = np.hstack((tracklet['xs'], tracklet['ys']))
             del tracklet['zs']
         Xt1, Xt2 = centers[:-1], centers[1:]
         tracklet['vectors'] = Xt2 - Xt1
