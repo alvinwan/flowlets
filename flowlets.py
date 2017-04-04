@@ -225,16 +225,14 @@ def flowletize(
             for box in tracklet['boxes']:
                 xs, ys = calib.velo2img(box.T, cam_idx).T
                 xmin, xmax, ymin, ymax = min(xs), max(xs), min(ys), max(ys)
-                projected_xs.append(xmin)
-                projected_ys.append(ymin)
+                projected_xs.append((xmin + xmax)/2.0)
+                projected_ys.append((ymin + ymax)/2.0)
                 projected_ws.append(xmax - xmin)
                 projected_hs.append(ymax - ymin)
             tracklet['xs'] = np.vstack(projected_xs)
             tracklet['ys'] = np.vstack(projected_ys)
             tracklet['ws'] = np.vstack(projected_ws)
             tracklet['hs'] = np.vstack(projected_hs)
-            tracklet['xs'] += tracklet['ws'] / 2
-            tracklet['ys'] += tracklet['hs'] / 2
             centers = np.hstack((tracklet['xs'], tracklet['ys']))
             del tracklet['zs']
         Xt1, Xt2 = centers[:-1], centers[1:]
@@ -262,22 +260,25 @@ def output(
             nFrames = flowlet['nFrames']
             firstFrame = flowlet['firstFrame']
             flowlet_data = {
-                'h': flowlet['h'],
-                'w': flowlet['w'],
+                #     'h': flowlet['hs'][0],
+                #     'w': flowlet['ws'][0],
                 'class': flowlet['class']
             }
-            if 'l' in flowlet:
-                flowlet_data['l'] = flowlet['l']
             for dt in range(nFrames - 1):
                 t = firstFrame + dt
-                flowlet_data['x'] = flowlet['xs'][dt]
-                flowlet_data['y'] = flowlet['ys'][dt]
+                if 'ls' in flowlet:
+                    flowlet_data['l'] = flowlet['ls']
+
+                flowlet_data['h'] = flowlet['hs'][dt][0]
+                flowlet_data['w'] = flowlet['ws'][dt][0]
+                flowlet_data['x'] = flowlet['xs'][dt][0]
+                flowlet_data['y'] = flowlet['ys'][dt][0]
                 flowlet_data['dx'] = flowlet['vectors'][dt][0]
                 flowlet_data['dy'] = flowlet['vectors'][dt][1]
                 if flowlet['vectors'].shape[1] >= 3:
-                    flowlet_data['z'] = flowlet['zs'][dt]
+                    flowlet_data['z'] = flowlet['zs'][dt][0]
                     flowlet_data['dz'] = flowlet['vectors'][dt][2]
-                entry = np.matrix([flowlet_data[c] for c in columns.split(',')])
+                entry = np.array([flowlet_data[c] for c in columns.split(',')])
                 if frames[t] is None:
                     frames[t] = entry
                 else:
