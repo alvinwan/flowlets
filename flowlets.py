@@ -280,7 +280,7 @@ def output(
                     flowlet_data['dz'] = flowlet['vectors'][dt][2]
                 entry = np.array([flowlet_data[c] for c in columns.split(',')])
                 if frames[t] is None:
-                    frames[t] = entry
+                    frames[t] = np.array([entry])
                 else:
                     frames[t] = np.vstack((frames[t], entry))
 
