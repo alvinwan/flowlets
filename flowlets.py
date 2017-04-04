@@ -52,7 +52,7 @@ from thirdparty.parseTrackletXML import parseXML
 DEFAULT_PATH_FORMAT = '{date}_{drive_id}_{frame_id}.npy'
 DEFAULT_2D_COLUMNS = 'x,y,w,h,dx,dy,class'
 DEFAULT_3D_COLUMNS = 'x,y,z,w,h,l,dx,dy,dz,class'
-OBJECT_TYPES = ('Car', 'Cyclist', 'Pedestrian', 'Van', 'Tram',
+OBJECT_TYPES = ('Car', 'Pedestrian', 'Cyclist', 'Van', 'Tram',
                 'Person (sitting)', 'Truck', 'Misc')
 
 
